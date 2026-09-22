@@ -144,6 +144,7 @@ typedef struct game_state {
     tetronimo_array block_array;
     direction dir;
     int score;
+    bool alive;
 
 } game_state;
 

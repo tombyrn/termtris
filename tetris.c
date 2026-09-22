@@ -229,6 +229,7 @@ void evaluate_block(tetronimo* t, game_state* gs) {
             break;
         }
 
+        // check if position below brick is occupied by the current block
         if(occupied_except(t, gs, b.x, b.y + 1)) {
             shouldMove = false;
             break;
@@ -501,6 +502,7 @@ int main(int argc, char** argv) {
 
             // loop and wait until host presses play (c - continue)
             bool game_started = false;
+            int games_finished = 0;
 
             struct pollfd fds[MAX_CLIENTS] = {0};
             for(int i = 0; i < MAX_CLIENTS; i++) // initialize fds array 
@@ -548,6 +550,7 @@ int main(int argc, char** argv) {
                 all_games[i].block_array.size = 0;
                 all_games[i].block_array.data = calloc(256, sizeof(tetronimo));
                 all_games[i].score = 0;
+                all_games[i].alive = true;
                 initialize_board(all_games[i].board);
                 all_games[i].dir = NONE;
                 initialize_block(&all_games[i]);
@@ -636,6 +639,8 @@ int main(int argc, char** argv) {
                  
                 // update game states
                 for(int i = 0; i < num_fds; i++) { 
+                    if(all_games[i].alive == false) continue;
+
                     iterate(&all_games[i]);
                     move_block(current_block(&all_games[i]), all_games[i].dir, &all_games[i]);
                 }
@@ -674,16 +679,24 @@ int main(int argc, char** argv) {
 
                 // check if game is over
                 for(int i = 0; i < num_fds; i++) {
+                    if(all_games[i].alive == false) continue;
+
                     tetronimo* curr_block = current_block(&all_games[i]);
                     for(int j = 0; j < all_games[i].block_array.size; j++) {
 
                         tetronimo block = all_games[i].block_array.data[j];
                         if(curr_block != &block)
                             for(int k = 0; k < block.brick_count; k++) {
-                                if(block.bricks[k].y == 0)
-                                    game_started = false;
+                                if(block.bricks[k].y == 0){
+                                    all_games[i].alive = false;
+                                    games_finished++;
+                                }
                             }
                     }
+                }
+
+                if(games_finished == num_fds) {
+                    game_started = false;
                 }
                 
                 usleep(200000);                
@@ -733,7 +746,6 @@ int main(int argc, char** argv) {
             while(game_started) {
                 // process client input
                 memset(input, 0, sizeof(input));
-                // direction input_dir = NONE;
                 
                 // read from player and send to the server
                 size_t bytes_read = read(0, &input, sizeof(input));
@@ -747,17 +759,16 @@ int main(int argc, char** argv) {
                 RESET_SCREEN;
                 for(int i = 0; i < BOARD_HEIGHT+1; i++) {
                     int bytes_read = recv(client_fd, pixel_row, board_width * sizeof(pixel), 0);
-                    if(bytes_read == board_width * sizeof(pixel))
+                    if(bytes_read == board_width * sizeof(pixel)){
                         for(int j = 0; j < board_width; j++) {
                             printf("%s%c", pixel_row[j].color, pixel_row[j].symbol);
                         }
-                    printf("\n");
+                        printf("\n");
+                    }
+                    else 
+                        game_started = false;
                 }
-
-
             }
-
-
         }
         else {
             perror("ERROR PARSING ARGUMENTS\n");
