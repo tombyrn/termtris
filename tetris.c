@@ -12,6 +12,60 @@ pthread_t input_t; // separate thread for input processing
 pthread_attr_t input_t_attr;
 pthread_mutex_t input_mutex;
 
+int I_SHAPE_ROTATION[4][2][2] = {
+    // rotation 0
+    {
+        {0,0},
+        {0,1}
+    },
+    // rotation 1
+    {
+        {1,0},
+        {0,0}
+    },
+    // rotation 2
+    {
+        {1,1},
+        {1,0}
+    },
+    // rotation 3
+    {
+        {0,1},
+        {1,1}
+    }
+};
+
+int L_SHAPE_ROTATION[4][3][2] = {
+        // rotation 0
+        {
+            {0,0},
+            // {1,0},
+            {0,1},
+            {1,1}
+        },
+        // rotation 1
+        {
+            {1,0},
+            // {1,1},
+            {0,0},
+            {0,1}
+        },
+        // rotation 2
+        {
+            {1,1},
+            // {0,1},
+            {1,0},
+            {0,0}
+        },
+        // rotation 3
+        {
+            {0,1},
+            // {0,0},
+            {1,1},
+            {1,0}
+        } 
+};
+
 // set terminal to raw mode so it can read user input immediately
 void enable_raw_input() {
     CHECK(tcgetattr(STDIN_FILENO, &orig_termios) != 0);
@@ -79,7 +133,7 @@ void draw_board() {
 }
 
 // returns addres of currently falling block
-tetronimo* current_block(game_state* gs){
+tetronimo* current_block(game_state* gs) {
     tetronimo_array block_array = gs->block_array;
     if(block_array.size == 0)
         return NULL;
@@ -477,298 +531,14 @@ int main(int argc, char** argv) {
         // SERVER CODE
         // ./tetris -h port
         if(!strcmp(argv[1], "-h")) {
-            // get port no. from arguments
-            int port = (int)strtol(argv[2], NULL, 10);
-
-            // create socket
-            int server_fd;
-            CHECK(server_fd = socket(PF_INET, SOCK_STREAM, 0));
-            
-            // enables local address reuse
-            int opt = 1;
-            setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)); 
-            
-            // configure server address structure
-            struct sockaddr_in address;
-            int addrres_len = sizeof(address);
-            address.sin_family = PF_INET;
-            address.sin_addr.s_addr = INADDR_ANY;
-            address.sin_port = htons(port);
-
-            CHECK(bind(server_fd, (struct sockaddr*) &address, addrres_len));
-            CHECK(listen(server_fd, 10)) // accept up to 10 connection
-
-            set_nonblocking(server_fd);
-
-            // loop and wait until host presses play (c - continue)
-            bool game_started = false;
-            int games_finished = 0;
-
-            struct pollfd fds[MAX_CLIENTS] = {0};
-            for(int i = 0; i < MAX_CLIENTS; i++) // initialize fds array 
-                fds->fd = -1;
-
-            int num_fds = 0;
-            
-            while(!game_started) {
-                int client_fd;
-                // accept new client connection
-                if((client_fd  = accept(server_fd, (struct sockaddr*) &address, (socklen_t*)&addrres_len)) >= 0) {
-                    set_nonblocking(client_fd);
-
-                    if(num_fds < MAX_CLIENTS+1) {
-                        fds[num_fds].fd = client_fd;
-                        fds[num_fds].events = POLL_IN;
-                        printf("new player connected FD: %d\n", client_fd);
-                        num_fds++;
-                    }
-                    else {
-                        printf("Server full. Rejecting connection.\n");
-                        close(client_fd);
-                    }
-
-                    if(num_fds > 0) 
-                        printf("Press 'C' to continue\n");
-                    
-                    
-                }
-                
-                // check if host wants to start game
-                if(num_fds > 0) {
-                    char c = {0};
-                    int bytes_read = read(0, &c, 1);
-                    if(bytes_read > 0 && (c == 'c' || c == 'C')) {
-                        game_started = true;
-                    }
-                }
-            }
-
-            // create num_fds game states
-            game_state* all_games = calloc(num_fds, sizeof(game_state));
-            for(int i = 0; i < num_fds; i++) {
-                all_games[i].block_array.capacity = 256;
-                all_games[i].block_array.size = 0;
-                all_games[i].block_array.data = calloc(256, sizeof(tetronimo));
-                all_games[i].score = 0;
-                all_games[i].alive = true;
-                initialize_board(all_games[i].board);
-                all_games[i].dir = NONE;
-                initialize_block(&all_games[i]);
-                
-            }
-
-            // create server_board to send to gamers
-            pixel** server_board = calloc(BOARD_HEIGHT+1, sizeof(pixel*));
-            int server_board_width = (BOARD_WIDTH * num_fds); 
-
-            for(int i = 0; i < BOARD_HEIGHT+1; i++) {
-                server_board[i] = calloc(server_board_width, sizeof(pixel));
-
-                if(i == 0) {
-                    for(int j = 0; j < server_board_width; j++) {
-                        if((j % BOARD_WIDTH) < 5){
-                            char* score = "SCORE";
-                            server_board[i][j].symbol = score[j % BOARD_WIDTH];
-                            strncpy(server_board[i][j].color, HWHT, 7);
-                            
-                        }
-                        else {
-                            server_board[i][j].symbol = ' ';
-                            strncpy(server_board[i][j].color, HWHT, 7);
-                        }
-                    }
-
-                }
-                else
-                    for(int j = 0; j < server_board_width; j++) {
-                        server_board[i][j].symbol = ' ';
-                        strncpy(server_board[i][j].color, HWHT, 7);
-                    }
-            }
-            
-            printf("created %d game_states\n", num_fds);
-            // send server size to gamers
-            for(int i = 0; i < num_fds; i++) {
-                send(fds[i].fd, &server_board_width, sizeof(int), 0);
-            }
-
-
-            // start game
-            // loop
-                // process input from clients
-                // update game states
-                // assemble board
-                // send new board to clients
-            while(game_started) {
-                int ready_fds = poll(fds, num_fds, 10);
-
-                // reset direction
-                for(int i = 0; i < num_fds; i++) all_games[i].dir = NONE;
-
-                // process input from gamers
-                if(ready_fds > 0){
-                    for(int i = 0; i < num_fds; i++) {
-                        // received directionn data
-                        if(fds[i].revents && fds[i].revents == POLLIN) {
-                            memset(input, 0, sizeof(input));
-                            direction input_dir = NONE;
-                            
-                            size_t bytes_read = recv(fds[i].fd, &input, sizeof(input), 0);
-                            if(bytes_read) {
-
-                                char c = input[0];
-                                // wasd
-                                if(c=='a'||c=='A') input_dir = LEFT;
-                                if(c=='d'||c=='D') input_dir = RIGHT;
-                                if(c=='s'||c=='S') input_dir = DOWN;
-                                if(c=='r'||c=='R') input_dir = ROTATE;
-                                // arrow keys
-                                if(c=='\033' && input[1]=='[') {
-                                    if(input[2]=='B') input_dir = DOWN;
-                                    if(input[2]=='C') input_dir = RIGHT;
-                                    if(input[2]=='D') input_dir = LEFT;
-                                }
-                            }
-
-                            all_games[i].dir = input_dir;
-                            // printf("player %d is moving %d\n", i, input_dir);
-
-                        }
-                    }
-                }   
-                 
-                // update game states
-                for(int i = 0; i < num_fds; i++) { 
-                    if(all_games[i].alive == false) continue;
-
-                    iterate(&all_games[i]);
-                    move_block(current_block(&all_games[i]), all_games[i].dir, &all_games[i]);
-                }
-                    
-                // assemble board
-                for(int i = 0; i < num_fds; i++) {
-                    initialize_board(all_games[i].board);
-                    draw_blocks_to_board(&all_games[i]);
-
-                    // draw score to board
-                    int score = all_games[i].score;
-                    int c = 1;
-                    while(score >= 0) {
-                        int end = score % 10;
-                        server_board[0][(i+1) * BOARD_WIDTH - c -1].symbol = end + '0';
-                        c++;
-                        score = score / 10;
-                        if (score == 0) score--;
-                    }
-
-                    // draw rest of board
-                    for(int r = 1; r < BOARD_HEIGHT+1; r++) {
-                        for(int c = 0; c < BOARD_WIDTH; c++) {
-                            server_board[r][c + (i * (BOARD_WIDTH))] = all_games[i].board[r][c];
-                        }
-                    }
-                }
-
-                // send board to clients
-                for(int i = 0; i < num_fds; i++) {
-                    // because its not in a contiguous block of data we have to send each line at a time
-                    for(int j = 0; j < BOARD_HEIGHT+1; j++) {
-                        send(fds[i].fd, server_board[j], sizeof(pixel) * (BOARD_WIDTH * num_fds), 0);
-                    }
-                }
-
-                // check if game is over
-                for(int i = 0; i < num_fds; i++) {
-                    if(all_games[i].alive == false) continue;
-
-                    tetronimo* curr_block = current_block(&all_games[i]);
-                    for(int j = 0; j < all_games[i].block_array.size; j++) {
-
-                        tetronimo block = all_games[i].block_array.data[j];
-                        if(curr_block != &block)
-                            for(int k = 0; k < block.brick_count; k++) {
-                                if(block.bricks[k].y == 0){
-                                    all_games[i].alive = false;
-                                    games_finished++;
-                                }
-                            }
-                    }
-                }
-
-                if(games_finished == num_fds) {
-                    game_started = false;
-                }
-                
-                usleep(200000);                
-            }
-
-            exit(0);
+            run_server(argv[2]);
         }
-        // CLIENT CODE
+
+            
+            // CLIENT CODE
         // ./tetris -c ip:port
         if(!strcmp(argv[1], "-c")) {
-            int client_fd = socket(AF_INET, SOCK_STREAM, 0);
-            char* ip = strtok(argv[2], ":");
-            int port = atoi(strtok(NULL, ":"));
-            printf("Connecting to %s:%d...\n", ip, port);
-
-            
-            struct sockaddr_in server_address;
-            server_address.sin_family = AF_INET;
-            server_address.sin_port = htons(port);
-            
-            if (inet_pton(AF_INET, ip, &server_address.sin_addr) <= 0) {
-                perror("INVALID ADDRESS");
-                close(client_fd);
-                return 1;
-            }
-            
-            // connect to server
-            int connection_status = connect(client_fd, (struct sockaddr*)&server_address, sizeof(server_address));
-            if(connection_status < 0) {
-                perror("ERROR CONNECTING CLIENT TO SERVER\n");
-                close(client_fd);
-                exit(1);
-            }
-            
-            printf("CONNECTED TO SERVER %d\n", connection_status);
-            int board_width;
-            read(client_fd, &board_width, sizeof(int));
-            
-            
-            pixel** board = calloc(BOARD_HEIGHT+1, sizeof(pixel));
-            for(int i = 0; i < BOARD_WIDTH+1; i++) {
-                board[i] = calloc(board_width, sizeof(pixel));
-            }
-            
-            pixel* pixel_row = calloc(board_width, sizeof(pixel));
-            bool game_started = true;
-            while(game_started) {
-                // process client input
-                memset(input, 0, sizeof(input));
-                
-                // read from player and send to the server
-                size_t bytes_read = read(0, &input, sizeof(input));
-
-                if(bytes_read){
-                    send(client_fd, input, sizeof(input), 0);
-                    // printf("sending %s\n", input);
-                } 
-
-                // read each row at a time
-                RESET_SCREEN;
-                for(int i = 0; i < BOARD_HEIGHT+1; i++) {
-                    int bytes_read = recv(client_fd, pixel_row, board_width * sizeof(pixel), 0);
-                    if(bytes_read == board_width * sizeof(pixel)){
-                        for(int j = 0; j < board_width; j++) {
-                            printf("%s%c", pixel_row[j].color, pixel_row[j].symbol);
-                        }
-                        printf("\n");
-                    }
-                    else 
-                        game_started = false;
-                }
-            }
+            run_client(argv[2]);
         }
         else {
             perror("ERROR PARSING ARGUMENTS\n");

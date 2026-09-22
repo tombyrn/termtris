@@ -1,3 +1,6 @@
+#ifndef TETRIS
+#define TETRIS
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <termios.h>
@@ -33,6 +36,10 @@
 #define L_PIECE 0
 #define I_PIECE 1
 
+extern _Atomic bool alive;
+extern char input[3];
+
+
 
 #define CHECK(func)                                \
     do {                                           \
@@ -45,59 +52,9 @@
     } while(0);
 
 // [rotation][brick][x/y]
-int I_SHAPE_ROTATION[4][2][2] = {
-    // rotation 0
-    {
-        {0,0},
-        {0,1}
-    },
-    // rotation 1
-    {
-        {1,0},
-        {0,0}
-    },
-    // rotation 2
-    {
-        {1,1},
-        {1,0}
-    },
-    // rotation 3
-    {
-        {0,1},
-        {1,1}
-    }
-};
+extern int I_SHAPE_ROTATION[4][2][2];
 
-int L_SHAPE_ROTATION[4][3][2] = {
-        // rotation 0
-        {
-            {0,0},
-            // {1,0},
-            {0,1},
-            {1,1}
-        },
-        // rotation 1
-        {
-            {1,0},
-            // {1,1},
-            {0,0},
-            {0,1}
-        },
-        // rotation 2
-        {
-            {1,1},
-            // {0,1},
-            {1,0},
-            {0,0}
-        },
-        // rotation 3
-        {
-            {0,1},
-            // {0,0},
-            {1,1},
-            {1,0}
-        } 
-};
+extern int L_SHAPE_ROTATION[4][3][2];
 
 
 typedef struct brick {
@@ -153,3 +110,13 @@ typedef struct game_state {
 void update_bricks(tetronimo* t);
 void move_block(tetronimo* block, direction dir, game_state* gs);
 void initialize_block(game_state* gs);
+void run_server(char* portNo);
+void run_client(char* ipNo);
+void set_nonblocking(int fd);
+void initialize_board(pixel board[BOARD_HEIGHT][BOARD_WIDTH]);
+void initialize_block(game_state* gs);
+void iterate(game_state* gs);
+void move_block(tetronimo* block, direction dir, game_state* gs);
+tetronimo* current_block(game_state* gs);
+void draw_blocks_to_board(game_state* gs);
+#endif
