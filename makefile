@@ -1,12 +1,16 @@
 CC = clang
-CFLAGS  = -g -Wall -Werror -std=c17
+CFLAGS  = -g -Wall -Werror -std=c17 -lpthread
 
-TARGET = tetris
+all: tetris
 
-all: $(TARGET)
+tetris: server.o client.o tetris.c
+	$(CC) tetris.c server.o client.o $(CFLAGS) -o tetris
 
-$(TARGET): $(TARGET).c
-	$(CC) $(TARGET).c $(CFLAGS) -lpthread -o $(TARGET)
+server.o: server.c
+	$(CC) -c server.c
+
+client.o: client.c
+	$(CC) -c client.c
 
 clean:
-	$(RM) -rf $(TARGET) $(TARGET).dSYM
+	rm -rf tetris tetris.dSYM *.o
